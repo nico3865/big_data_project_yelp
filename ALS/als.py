@@ -34,16 +34,16 @@ def main():
   businessIdDf2 = spark.createDataFrame(businessIdRdd1) \
                       .withColumnRenamed('_1', 'business_id') \
                       .withColumnRenamed('_2', 'business_id_indexed')
+
   # join user id zipped with index and business id with index
   test = test.join(userIdDf2, ['user_id'], 'left').join(businessIdDf2, ['business_id'], 'left')
-  test.show(100)
 
   # get user mean
   user_mean = training.groupBy('user_id').mean('stars').withColumnRenamed('avg(stars)', 'user-mean')
 
   # get item mean
   business_mean = training.groupBy('business_id').mean('stars').withColumnRenamed('avg(stars)', 'business-mean')
-  business_mean.show()
+
   # join user mean df and training df
   training = training.join(user_mean, ['user_id']) \
           .select(training['user_id'], training['business_id'], training['stars'], user_mean['user-mean'])
@@ -92,13 +92,15 @@ def main():
   predictions = predictions.join(user_mean, ['user_id'],'left')
   predictions = predictions.join(business_mean, ['business_id'], 'left')
   rating_global_mean = training.groupBy().mean('stars').head()[0]
+  predictions.show(20)
+  predictions = predictions.na.fill(rating_global_mean)
   final_stars = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
                                           predictions['user-mean'],
                                           predictions['business-mean'],
                                           rating_global_mean))
-
+  # TODO: filter out good ratings and check the rmse
+  # TODO: filter out bad ratings and check the rmse
   # fill in the null values on the final-stars column with the rating global mean
-  final_stars = final_stars.na.fill(rating_global_mean)
   evaluator = RegressionEvaluator(metricName='rmse',
                                   labelCol='stars',
                                   predictionCol='final-stars')
