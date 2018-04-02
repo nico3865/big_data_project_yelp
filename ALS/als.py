@@ -14,7 +14,8 @@ def get_user_business(rating, user_mean, item_mean, rating_global_mean):
   return rating-(user_mean +item_mean-rating_global_mean)
 
 def get_final_ratings(i, user_mean, item_mean, global_average_rating):
-  return i+user_mean+item_mean-global_average_rating
+  final_ratings = i+user_mean+item_mean-global_average_rating
+  return final_ratings
 
 def main():
   spark = SparkSession.Builder().getOrCreate()
@@ -75,7 +76,6 @@ def main():
                       .withColumnRenamed('_2', 'business_id_indexed')
   # join user id zipped with index and business id with index
   training = training.join(userIdDf, ['user_id'], 'left').join(businessIdDf, ['business_id'], 'left')
-  training.show(100)
   als = ALS(maxIter=5,
             rank=70,
             regParam=0.01,
@@ -90,21 +90,20 @@ def main():
   predictions = model.transform(test)
   
   predictions = predictions.join(user_mean, ['user_id'],'left')
-  predictions.show(20)
-  business_mean.show(20)
   predictions = predictions.join(business_mean, ['business_id'], 'left')
-  predictions.show(20)
   rating_global_mean = training.groupBy().mean('stars').head()[0]
   final_stars = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
                                           predictions['user-mean'],
                                           predictions['business-mean'],
                                           rating_global_mean))
-  final_stars.show(20)
+
+  # fill in the null values on the final-stars column with the rating global mean
+  final_stars = final_stars.na.fill(rating_global_mean)
   evaluator = RegressionEvaluator(metricName='rmse',
                                   labelCol='stars',
                                   predictionCol='final-stars')
-  # rmse = evaluator.evaluate(final_stars)
-  # print(float(rmse))
+  rmse = evaluator.evaluate(final_stars)
+  print(float(rmse))
 
 if __name__ == '__main__':
     main()
