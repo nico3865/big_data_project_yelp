@@ -12,26 +12,12 @@ def main():
   datapath = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
   dataset = spark.read.format('libsvm').json(datapath+'/data/business.json')
   ll = dataset.select(dataset.longitude, dataset.latitude)
-  trainingData=ll.rdd.map(lambda x:(Vectors.dense(x[0], x[1]), 0)).toDF(["features", "label"])
-  print(trainingData.show())
-  # dataset = rdd.map(lambda row: (Vectors.dense([float(row['longitude']), float(row['latitude'])])))
-  
-  # create dataframe
-  # df = spark.createDataFrame(dataset, ['Features'])
-  # Build the model (cluster the data)
-  kmeans = KMeans(featuresCol='features').setK(2).setSeed(1)
-  model = kmeans.fit(trainingData)
+  data =ll.rdd.map(lambda x:(Vectors.dense(float(x[0]), float(x[1])),)).collect()
+  df = spark.createDataFrame(data, ["features"])
+  kmeans = KMeans(k=4, seed=1)
+  model = kmeans.fit(df)
 
-  # Make predictions
-  predictions = model.transform(dataset)
-
-  # Evaluate clustering by computing Silhouette score
-  evaluator = ClusteringEvaluator()
-
-  silhouette = evaluator.evaluate(predictions)
-  print("Silhouette with squared euclidean distance = " + str(silhouette))
-
-  # Shows the result.
+  # # Shows the result.
   centers = model.clusterCenters()
   print("Cluster Centers: ")
   for center in centers:
