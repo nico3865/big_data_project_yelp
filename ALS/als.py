@@ -92,15 +92,11 @@ def main():
   predictions = predictions.join(user_mean, ['user_id'],'left')
   predictions = predictions.join(business_mean, ['business_id'], 'left')
   rating_global_mean = training.groupBy().mean('stars').head()[0]
-  predictions.show(20)
   predictions = predictions.na.fill(rating_global_mean)
   final_stars = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
                                           predictions['user-mean'],
                                           predictions['business-mean'],
                                           rating_global_mean))
-  # TODO: filter out good ratings and check the rmse
-  # TODO: filter out bad ratings and check the rmse
-  # fill in the null values on the final-stars column with the rating global mean
   evaluator = RegressionEvaluator(metricName='rmse',
                                   labelCol='stars',
                                   predictionCol='final-stars')
