@@ -9,13 +9,33 @@ from  pyspark.sql.types import *
 from pyspark.ml.linalg import Vectors
 def main():
   spark = SparkSession.Builder().getOrCreate()
+  # load dataset
   datapath = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
   dataset = spark.read.format('libsvm').json(datapath+'/data/business.json')
+
+  # get longitude and latitude
   ll = dataset.select(dataset.longitude, dataset.latitude)
+
+  # convert ll to dense vectors
   data =ll.rdd.map(lambda x:(Vectors.dense(float(x[0]), float(x[1])),)).collect()
+
+  # create a dataframe where it's first column it called features
   df = spark.createDataFrame(data, ["features"])
+
+  # set KMeans k and seed
   kmeans = KMeans(k=4, seed=1)
+
+  # generate model
   model = kmeans.fit(df)
+
+  # Make predictions
+  predictions = model.transform(df)
+
+  # Evaluate clustering by computing Silhouette score
+  evaluator = ClusteringEvaluator()
+
+  silhouette = evaluator.evaluate(predictions)
+  print("Silhouette with squared euclidean distance = " + str(silhouette))
 
   # # Shows the result.
   centers = model.clusterCenters()
