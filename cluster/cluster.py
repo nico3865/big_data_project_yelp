@@ -7,6 +7,9 @@ from pyspark.ml.clustering import KMeans
 from pyspark.ml.evaluation import ClusteringEvaluator
 from  pyspark.sql.types import *
 from pyspark.ml.linalg import Vectors
+from pyspark.ml.feature import VectorAssembler
+from pyspark.sql.functions import desc
+
 def main():
   spark = SparkSession.Builder().getOrCreate()
   # load dataset
@@ -14,13 +17,15 @@ def main():
   dataset = spark.read.format('libsvm').json(datapath+'/data/business.json')
 
   # get longitude and latitude
-  ll = dataset.select(dataset.longitude, dataset.latitude)
-
+  ll = dataset.select(dataset.categories[0], dataset.longitude, dataset.latitude)
+  ll = ll.withColumnRenamed('categories[0]', 'categories')
   # convert ll to dense vectors
-  data =ll.rdd.map(lambda x:(Vectors.dense(float(x[0]), float(x[1])),)).collect()
+  # data =ll.rdd.map(lambda x:(Vectors.dense(float(x[0]), float(x[1])),)).collect()
+  assembler = VectorAssembler(
+      inputCols=['longitude', 'latitude'],
+      outputCol='features')
 
-  # create a dataframe where it's first column it called features
-  df = spark.createDataFrame(data, ["features"])
+  df = assembler.transform(ll)
 
   # set KMeans k and seed
   kmeans = KMeans(k=4, seed=1)
@@ -30,14 +35,24 @@ def main():
 
   # Make predictions
   predictions = model.transform(df)
-
+  predictions.show(20)
   # Evaluate clustering by computing Silhouette score
   evaluator = ClusteringEvaluator()
 
   silhouette = evaluator.evaluate(predictions)
   print("Silhouette with squared euclidean distance = " + str(silhouette))
 
-  # # Shows the result.
+  # number of location in each cluster
+  print('Number of business in each cluster: ')
+  predictions.groupBy('prediction').count().sort(desc('count')).show()
+
+
+  # show in which cluster do we have more restaurants
+  print('Number of restaurant per clusters')
+  predictions.where(predictions.categories == 'Restaurants').groupBy('prediction').count().sort(desc('count')).show()
+
+
+  # Shows the result.
   centers = model.clusterCenters()
   print("Cluster Centers: ")
   for center in centers:
