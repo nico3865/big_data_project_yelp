@@ -21,7 +21,7 @@ def main():
   spark = SparkSession.Builder().getOrCreate()
   seed = int(sys.argv[SEED])
   datapath = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
-  rdd = spark.read.json(datapath+'/data/review_truncated_RAW.json').rdd
+  rdd = spark.read.json(datapath+'/data/review.json').limit(100000).rdd
   df = spark.createDataFrame(rdd)
   (training, test) = df.randomSplit([0.8, 0.2], seed)
   userIdRdd1 = test.select('user_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
@@ -97,11 +97,23 @@ def main():
                                           predictions['user-mean'],
                                           predictions['business-mean'],
                                           rating_global_mean))
+  high_stars = final_stars.where(final_stars['final-stars'] >= 3)
+  low_stars = final_stars.where(final_stars['final-stars'] < 3)
+  
   evaluator = RegressionEvaluator(metricName='rmse',
                                   labelCol='stars',
                                   predictionCol='final-stars')
-  rmse = evaluator.evaluate(final_stars)
-  print(float(rmse))
+
+  final_stars_rmse = evaluator.evaluate(final_stars)
+  print('final stars rmse', float(final_stars_rmse))
+  
+  high_stars_rmse = evaluator.evaluate(high_stars)
+  print('number of high stars', high_stars.count())
+  print('high stars rmse', float(high_stars_rmse))
+
+  print('number of low stars', low_stars.count())
+  low_stars_rmse = evaluator.evaluate(low_stars)
+  print('low stars rmse', float(low_stars_rmse))
 
 if __name__ == '__main__':
     main()
