@@ -1,2 +1,3 @@
 pyspark
 py4j
+numpy
