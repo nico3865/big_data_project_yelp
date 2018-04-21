@@ -36,8 +36,8 @@ seed = 1  # int(sys.argv[SEED])
 # datapath = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
 # rdd = spark.read.json(datapath+'/data/review_truncated_RAW.json').rdd
 
-# filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review.json'
-filename = '../data/review_50K_0.json'
+filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review.json'
+# filename = '../data/review_50K_0.json'
 # filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review_MTL_ONLY.json'
 # filename = '/Users/nicolasg-chausseau/big_data_project_yelp/data/review_truncated_RAW.json'
 rdd = spark.read.json(filename).limit(1200).rdd # datapath+'/data/review_trunca®ted_RAW.json'
@@ -99,7 +99,7 @@ businessIdDf = spark.createDataFrame(businessIdRdd) \
     .withColumnRenamed('_2', 'business_id_indexed')
 # join user id zipped with index and business id with index
 training = training.join(userIdDf, ['user_id'], 'left').join(businessIdDf, ['business_id'], 'left')
-als = ALS(maxIter=6,
+als = ALS(maxIter=5,
           rank=70,  # ORIGINAL
           # rank=3,
           regParam=0.01,
@@ -239,24 +239,8 @@ businessIdDf2_2 = spark.createDataFrame(businessIdRdd1_2) \
 
 # join user id zipped with index and business id with index
 cartesian_product_DF = cartesian_product_DF.join(userIdDf2_2, ['user_id'], 'left').join(businessIdDf2_2, ['business_id'], 'left')
+cartesian_product_DF.show()
 
-
-# training = training.drop("user-mean")
-# training = training.drop("business-mean")
-# data needs to have following fields:
-# |         business_id|             user_id|cool|      date|funny|           review_id|stars|                text|useful|user_id_indexed|business_id_indexed|
-# predictions = model.transform(training) # predicting only on training data ... with all zeros ... I don't know how relevant it is ... we'll have to compare its explainedVariance with the full predicted matrix.
-predictions = model.transform(cartesian_product_DF) # df... but it would have to be prepared too. for now I can achieve the same by making the test set so small that training is almost all the ratings.
-# do the same again: adjust for biases:
-predictions = predictions.join(user_mean, ['user_id'],'left')
-predictions = predictions.join(business_mean, ['business_id'], 'left')
-rating_global_mean = training.groupBy().mean('stars').head()[0]
-predictions.show()
-predictions = predictions.na.fill(rating_global_mean)
-final_stars_FINAL = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
-                                                                      predictions['user-mean'],
-                                                                      predictions['business-mean'],
-                                                                      rating_global_mean))
 
 # .... this below (prepare) is not enough
 # of course --> do like for LA3:
@@ -267,7 +251,7 @@ final_stars_FINAL = predictions.withColumn('final-stars', get_final_ratings(pred
 
 
 # data preparation: get the searchable map of .... state --> plants # TODO: keep a searchable table for business and user ids which will become ints ...
-searchable_plant_in_state_sets_1 = final_stars_FINAL.rdd.map(lambda x: (x[0], [(x[1], float(x[2]))]))
+searchable_plant_in_state_sets_1 = cartesian_product_DF.rdd.map(lambda x: (x[0], [(x[1], float(x[2]))]))
 searchable_plant_in_state_sets_2 = searchable_plant_in_state_sets_1.reduceByKey(lambda a, b: a + b)
 def mergeListsOfTuples(a, b_reference):
     from collections import defaultdict
@@ -304,6 +288,24 @@ final_stars_FINAL_READY = searchable_plant_in_state_sets_4.map(lambda x: x[1]).z
 #     --.map(lambda x: (x[0], [p[1] for p in x[1]]))\
 #     --.map(lambda x: x[1])\
 #     --.zipWithIndex()
+
+
+# training = training.drop("user-mean")
+# training = training.drop("business-mean")
+# data needs to have following fields:
+# |         business_id|             user_id|cool|      date|funny|           review_id|stars|                text|useful|user_id_indexed|business_id_indexed|
+# predictions = model.transform(training) # predicting only on training data ... with all zeros ... I don't know how relevant it is ... we'll have to compare its explainedVariance with the full predicted matrix.
+predictions = model.transform(final_stars_FINAL_READY) # df... but it would have to be prepared too. for now I can achieve the same by making the test set so small that training is almost all the ratings.
+# do the same again: adjust for biases:
+predictions = predictions.join(user_mean, ['user_id'],'left')
+predictions = predictions.join(business_mean, ['business_id'], 'left')
+rating_global_mean = training.groupBy().mean('stars').head()[0]
+predictions.show()
+predictions = predictions.na.fill(rating_global_mean)
+final_stars_FINAL = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
+                                                                            predictions['user-mean'],
+                                                                            predictions['business-mean'],
+                                                                            rating_global_mean))
 
 
 
