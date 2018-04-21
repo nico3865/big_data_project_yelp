@@ -82,8 +82,8 @@ def main():
 
   # userIdRdd1 = test.select('user_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
   # businessIdRdd1 = test.select('business_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
-  userIdRdd1 = test.select('user_id').where(test["city"] == "Montreal").rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
-  businessIdRdd1 = test.select('business_id').where(test["city"] == "Montreal").rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
+  userIdRdd1 = test.select('user_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
+  businessIdRdd1 = test.select('business_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
 
   # convert to dataframe
   userIdDf2 = spark.createDataFrame(userIdRdd1)\
