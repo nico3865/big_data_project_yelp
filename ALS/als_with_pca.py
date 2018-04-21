@@ -37,7 +37,8 @@ seed = 1  # int(sys.argv[SEED])
 # rdd = spark.read.json(datapath+'/data/review_truncated_RAW.json').rdd
 
 # filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review.json'
-filename = '../data/review_50K_0.json'
+# filename = '../data/review_50K_0.json'
+filename = 'review_50K_0.json'
 # filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review_MTL_ONLY.json'
 # filename = '/Users/nicolasg-chausseau/big_data_project_yelp/data/review_truncated_RAW.json'
 rdd = spark.read.json(filename).limit(1200).rdd # datapath+'/data/review_trunca®ted_RAW.json'
