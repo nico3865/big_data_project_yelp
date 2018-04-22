@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from pyspark.ml.linalg import Vectors
+from pyspark.ml.linalg import Vectors, DenseMatrix
+# from pyspark.ml.linalg import Vectors
 
 from pyspark.sql import SparkSession, SQLContext
 from pyspark.ml.recommendation import ALS
@@ -23,6 +24,8 @@ from pyspark.ml.feature import StringIndexer
 
 from constants import SEED
 
+
+
 def get_user_business(rating, user_mean, item_mean, rating_global_mean):
     return rating-(user_mean +item_mean-rating_global_mean)
 
@@ -31,7 +34,13 @@ def get_final_ratings(i, user_mean, item_mean, global_average_rating):
     return final_ratings
 
 
+# sparkConf.set("spark.sql.crossJoin.enabled", "true")
+#Then get or create SparkSession by passing this SparkConf
+# val sparkSession = SparkSession.builder().config(sparkConf).getOrCreate()
+
 spark = SparkSession.Builder().getOrCreate()
+spark.conf.set("spark.sql.crossJoin.enabled", "true")
+
 seed = 1  # int(sys.argv[SEED])
 # datapath = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
 # rdd = spark.read.json(datapath+'/data/review_truncated_RAW.json').rdd
@@ -41,11 +50,11 @@ seed = 1  # int(sys.argv[SEED])
 filename = 'review_50K_0.json'
 # filename = '/Users/nicolasg-chausseau/Downloads/yelp_dataset/review_MTL_ONLY.json'
 # filename = '/Users/nicolasg-chausseau/big_data_project_yelp/data/review_truncated_RAW.json'
-rdd = spark.read.json(filename).limit(1200).rdd # datapath+'/data/review_trunca®ted_RAW.json'
+rdd = spark.read.json(filename).limit(100).rdd # datapath+'/data/review_trunca®ted_RAW.json'
 # TODO: put the limit above back to 100,000
 
 df = spark.createDataFrame(rdd)
-# df.show()
+df.show()
 # sys.exit()
 (training, test) = df.randomSplit([0.8, 0.2], seed) #df.randomSplit([0.8, 0.2], seed)
 userIdRdd1 = test.select('user_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
@@ -114,8 +123,11 @@ model = als.fit(training)
 
 # Evaluate the model by computing the RMSE on the test data
 predictions = model.transform(test)
-# test.show() # I should make my cross product have the same columns
-# predictions.show()
+print("this is what the regular als input and output looks like")
+test.show() # I should make my cross product have the same columns
+predictions.show()
+print("this is what the regular als input and output looks like")
+# sys.exit()
 predictions = predictions.join(user_mean, ['user_id'],'left')
 predictions = predictions.join(business_mean, ['business_id'], 'left')
 rating_global_mean = training.groupBy().mean('stars').head()[0]
@@ -199,32 +211,56 @@ from pyspark.sql import functions as f
 
 
 print("#####################")
-final_stars_FINAL = final_stars.select("business_id","user_id","final-stars")
-final_stars_FINAL.show()
+df_raw_data = df.select("business_id","user_id")
+df_raw_data.show()
 print("#####################")
 # sys.exit()
 
 # first must get the cross product of all users by all businesses:
-list_of_user_ids = final_stars_FINAL.rdd.map(lambda p: p[1].strip())
+list_of_user_ids = df_raw_data.rdd.map(lambda p: p[1].strip())
 list_of_user_ids_distinct = list_of_user_ids.distinct()
 list_of_user_ids_distinct_MAP_COLLECTED = list_of_user_ids_distinct.map(lambda x: (x, 0.0)).collect()
-# print("do I have a good list of distinct user ids?")
-# for item in list_of_user_ids_distinct_MAP_COLLECTED:
-#     print(item)
-# print("do I have a good list of distinct user ids?")
+print("do I have a good list of distinct user ids?")
+for item in list_of_user_ids_distinct.collect():
+    print(item)
+print("do I have a good list of distinct user ids?")
 
-list_of_business_ids = final_stars_FINAL.rdd.map(lambda p: p[0].strip())
+list_of_business_ids = df_raw_data.rdd.map(lambda p: p[0].strip())
 list_of_business_ids_distinct = list_of_business_ids.distinct()
-list_of_business_ids_distinct_MAP_COLLECTED = list_of_business_ids_distinct.map(lambda x: (x, 0.0)).collect()
+# list_of_business_ids_distinct_MAP_COLLECTED = list_of_business_ids_distinct.map(lambda x: (x, 0.0)).collect()
+print("do I have a good list of distinct business ids?")
+for item in list_of_business_ids_distinct.collect():
+    print(item)
+print("do I have a good list of distinct business ids?")
 
 # get cross product:
-cartesian_product = list_of_business_ids.cartesian(list_of_user_ids_distinct)
-# print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
-# for item in cartesian_product.collect():
-#     print(item)
-# print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+# cartesian_product = list_of_business_ids_distinct.cartesian(list_of_user_ids_distinct)
+# cartesian_product = list_of_business_ids.map(lambda x: )
+# https://forums.databricks.com/questions/6747/how-do-i-get-a-cartesian-product-of-a-huge-dataset.html
+sqlContext = SQLContext(spark.sparkContext)
+# products = sqlContext.table("products").repartition(100).cache()
+list_of_user_ids_distinct_DF = list_of_user_ids_distinct.map(lambda x: (x,)).toDF(["user_id"])#.cache() # ["user_id"]
+list_of_user_ids_distinct_DF.take(5)
+list_of_business_ids_distinct_DF = list_of_business_ids_distinct.map(lambda x: (x,)).toDF(["business_id"]) # ["business_id"]
+# print("spark.sql.autoBroadcastJoinThreshold = .... ?", spark.sql.autoBroadcastJoinThreshold)
+# spark.sql.autoBroadcastJoinThreshold = 0
+# customers = table("customers")
+# Triggers cartesian products using the regular inner join syntax after turning on the flag
+# spark.conf.set("spark.sql.crossJoin.enabled", "true")
+cartesian_product = list_of_user_ids_distinct_DF.join(list_of_business_ids_distinct_DF)
+# spark.conf.set("spark.sql.crossJoin.enabled", "false")
+# joined.write.save(...path...)
+# spark.sql.autoBroadcastJoinThreshold = 1
+
+print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+for item in cartesian_product.collect():
+    print(item)
+print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
 # sys.exit()
-cartesian_product_DF = cartesian_product.toDF(["business_id","user_id"])#.withColumn()
+cartesian_product_DF = cartesian_product.toDF("user_id", "business_id")#.withColumn()
+print("and as DF:")
+cartesian_product_DF.show()
+print("and as DF:")
 
 # add all the necessary columns for the ALS model to do its job:
 userIdRdd1_2 = cartesian_product_DF.select('user_id').rdd.distinct().zipWithIndex().map(lambda x: (x[0][0], x[1]))
@@ -240,9 +276,53 @@ businessIdDf2_2 = spark.createDataFrame(businessIdRdd1_2) \
 
 # join user id zipped with index and business id with index
 cartesian_product_DF = cartesian_product_DF.join(userIdDf2_2, ['user_id'], 'left').join(businessIdDf2_2, ['business_id'], 'left')
+print("what does the cartsian product look like?")
 cartesian_product_DF.show()
+print("what does the cartsian product look like?")
+# sys.exit()
 
 
+
+# training = training.drop("user-mean")
+# training = training.drop("business-mean")
+# data needs to have following fields:
+# |         business_id|             user_id|cool|      date|funny|           review_id|stars|                text|useful|user_id_indexed|business_id_indexed|
+# predictions = model.transform(training) # predicting only on training data ... with all zeros ... I don't know how relevant it is ... we'll have to compare its explainedVariance with the full predicted matrix.
+# final_stars_FINAL_READY = final_stars_FINAL_READY.toDF() --> that was a huge mistake
+predictions_ON_ALL = model.transform(cartesian_product_DF) # df... but it would have to be prepared too. for now I can achieve the same by making the test set so small that training is almost all the ratings.
+print("and what does corresponding ALS output look like?")
+predictions_ON_ALL.show()
+print("and what does corresponding ALS output look like?")
+# do the same again: adjust for biases:
+predictions_ON_ALL = predictions_ON_ALL.join(user_mean, ['user_id'],'left')
+predictions_ON_ALL = predictions_ON_ALL.join(business_mean, ['business_id'], 'left')
+# rating_global_mean = training.groupBy().mean('stars').head()[0]
+predictions_ON_ALL = predictions.na.fill(rating_global_mean)
+final_stars_FINAL = predictions_ON_ALL.withColumn('final-stars', get_final_ratings(predictions_ON_ALL['prediction'],
+                                                                                   predictions_ON_ALL['user-mean'],
+                                                                                   predictions_ON_ALL['business-mean'],
+                                                                                   rating_global_mean))
+
+
+
+# do I have a 2D matrix now?
+print("# do I have a 2D matrix now --> FULLY PREDICTED ????????????????????????")
+# for item in final_stars_FINAL.rdd.collect():
+#     print(item)
+final_stars_FINAL.show()
+print("# do I have a 2D matrix now --> FULLY PREDICTED ??????????????????????? ==> NOW WE KNOw .........")
+# iris_irm = IndexedRowMatrix(final_stars_FINAL_READY.map(lambda x: IndexedRow(x[1], x[0])))
+
+
+
+
+
+
+
+
+
+
+# ------------------------------------------
 # .... this below (prepare) is not enough
 # of course --> do like for LA3:
 #     make a separate rdd with the list of distinct users .. for EVERY business!
@@ -250,9 +330,11 @@ cartesian_product_DF.show()
 #     them merge by key, and write my own function to merge the lists correctly, respecting the order
 #     ... this will take forever to complete, should run on orwell ..... we'll see.'
 
+print("START --> WAITING FOR RESULT --> do I have a good list of searchable_plant_in_state_sets_4?")
 
 # data preparation: get the searchable map of .... state --> plants # TODO: keep a searchable table for business and user ids which will become ints ...
-searchable_plant_in_state_sets_1 = cartesian_product_DF.rdd.map(lambda x: (x[0], [(x[1], float(x[2]))]))
+final_stars_FINAL_3_columns = final_stars_FINAL.select("business_id","user_id","final-stars")
+searchable_plant_in_state_sets_1 = final_stars_FINAL_3_columns.rdd.map(lambda x: (x[0], [(x[1], float(x[2]))]))
 searchable_plant_in_state_sets_2 = searchable_plant_in_state_sets_1.reduceByKey(lambda a, b: a + b)
 def mergeListsOfTuples(a, b_reference):
     from collections import defaultdict
@@ -262,7 +344,7 @@ def mergeListsOfTuples(a, b_reference):
         b_dict_reference[key] += float(a_dict[key])
     list_to_return = [(k,v) for k,v in b_dict_reference.items()]
     return list_to_return
-sqlContext = SQLContext(spark.sparkContext)
+# sqlContext = SQLContext(spark.sparkContext)
 sqlContext.udf.register("mergeListsOfTuples", mergeListsOfTuples)
 searchable_plant_in_state_sets_3_pre = searchable_plant_in_state_sets_2.map(lambda x: (x[0], mergeListsOfTuples(x[1], list_of_user_ids_distinct_MAP_COLLECTED)))
 # print("do I have a good list of searchable_plant_in_state_sets_3_pre?")
@@ -272,10 +354,10 @@ searchable_plant_in_state_sets_3_pre = searchable_plant_in_state_sets_2.map(lamb
 # searchable_plant_in_state_sets_3 = searchable_plant_in_state_sets_3_pre.filter(lambda x: x[0] in all_states)
 searchable_plant_in_state_sets_3 = searchable_plant_in_state_sets_3_pre.map(lambda x: (x[0], sorted(x[1], key=lambda x: x[0], reverse=True)))
 searchable_plant_in_state_sets_4 = searchable_plant_in_state_sets_3.map(lambda x: (x[0], [p[1] for p in x[1]]))
-print("do I have a good list of searchable_plant_in_state_sets_4?")
+print("FINALLY --> do I have a good list of searchable_plant_in_state_sets_4?")
 for item in searchable_plant_in_state_sets_3_pre.collect():
     print(item)
-print("do I have a good list of searchable_plant_in_state_sets_4?")
+print("FINALLY --> do I have a good list of searchable_plant_in_state_sets_4?")
 final_stars_FINAL_READY = searchable_plant_in_state_sets_4.map(lambda x: x[1]).zipWithIndex() # get rid of business_ids and replace with simple integer ids instead.
 # final_stars_FINAL_READY = searchable_plant_in_state_sets_5.map(lambda x: x[1])
 
@@ -289,25 +371,7 @@ final_stars_FINAL_READY = searchable_plant_in_state_sets_4.map(lambda x: x[1]).z
 #     --.map(lambda x: (x[0], [p[1] for p in x[1]]))\
 #     --.map(lambda x: x[1])\
 #     --.zipWithIndex()
-
-
-# training = training.drop("user-mean")
-# training = training.drop("business-mean")
-# data needs to have following fields:
-# |         business_id|             user_id|cool|      date|funny|           review_id|stars|                text|useful|user_id_indexed|business_id_indexed|
-# predictions = model.transform(training) # predicting only on training data ... with all zeros ... I don't know how relevant it is ... we'll have to compare its explainedVariance with the full predicted matrix.
-predictions = model.transform(final_stars_FINAL_READY) # df... but it would have to be prepared too. for now I can achieve the same by making the test set so small that training is almost all the ratings.
-# do the same again: adjust for biases:
-predictions = predictions.join(user_mean, ['user_id'],'left')
-predictions = predictions.join(business_mean, ['business_id'], 'left')
-rating_global_mean = training.groupBy().mean('stars').head()[0]
-predictions.show()
-predictions = predictions.na.fill(rating_global_mean)
-final_stars_FINAL = predictions.withColumn('final-stars', get_final_ratings(predictions['prediction'],
-                                                                            predictions['user-mean'],
-                                                                            predictions['business-mean'],
-                                                                            rating_global_mean))
-
+# ------------------------------------------
 
 
 # do I have a 2D matrix now?
@@ -318,6 +382,15 @@ print("# do I have a 2D matrix now --> FULLY PREDICTED ??????????????????????? =
 iris_irm = IndexedRowMatrix(final_stars_FINAL_READY.map(lambda x: IndexedRow(x[1], x[0])))
 
 
+
+
+
+
+
+
+
+
+# ------------------------------------------
 # https://blog.paperspace.com/dimension-reduction-with-principal-component-analysis/
 # do SVD:
 num_of_top_sing_values = 2
@@ -332,9 +405,10 @@ eigvals = S**2/(n-1)
 eigvals = np.flipud(np.sort(eigvals))
 cumsum = eigvals.cumsum()
 total_variance_explained = cumsum/eigvals.sum()
-print("total_variance_explained =======================================> ", total_variance_explained)
+print("total_variance_explained, given num reviews: "+str(n)+" and num_of_top_sing_values. "+str(num_of_top_sing_values)+"=======================================> ", total_variance_explained)
 # on 1000 with 2 PCs --> total_variance_explained =======================================>  [0.61812207 1.        ]
 # on 10,000 with 2 PCs --> total_variance_explained =======================================>  [0.53526158 1.        ]
+# ... those were errors I think, here are the real results: with a real full 2d predicted matrix:
 #
 
 
@@ -344,18 +418,83 @@ K = np.argmax(total_variance_explained>0.95)+1
 V = SVD.V
 U = U.rows.map(lambda x: (x.index, x.vector[0:K]*S[0:K]))
 princ_comps = np.array(list(map(lambda x:x[1], sorted(U.collect(), key = lambda x:x[0]))))
+print("printing the principal components: ")
+for item in princ_comps:
+    print(item)
+    # for item2 in item:
+    #     print(item2)
+print("/printing the principal components: ")
 
-
-
-#
 # # plot it later!!!!!!!!!!!!
+# import matplotlib.pyplot as plt
+#
 # setosa = princ_comps[iris_target==0]
 # versicolor = princ_comps[iris_target==1]
 # verginica = princ_comps[iris_target==2]
 # plt.scatter(setosa[:,0], setosa[:,1], c="b",label="setosa")
 # plt.scatter(versicolor[:,0], versicolor[:,1], c="g",label="versicolor")
 # plt.scatter(verginica[:,0], verginica[:,1], c="r",label="verginica")
-#
+
+
+
+
+
+
+# --------------- prepare for projectiON:
+
+# df_raw_data = df.select("business_id","user_id", "stars")
+
+
+
+# data preparation: get the searchable map of .... state --> plants # TODO: keep a searchable table for business and user ids which will become ints ...
+df_raw_data = df.select("business_id","user_id","stars") # note that here the only difference is that we're taking the original stars not the predicted stars.
+searchable_plant_in_state_sets_1 = df_raw_data.rdd.map(lambda x: (x[0], [(x[1], float(x[2]))]))
+searchable_plant_in_state_sets_2 = searchable_plant_in_state_sets_1.reduceByKey(lambda a, b: a + b)
+def mergeListsOfTuples(a, b_reference):
+    from collections import defaultdict
+    a_dict = defaultdict(lambda:0.0, a)
+    b_dict_reference = defaultdict(lambda:0.0, b_reference)
+    for key, value in b_reference:
+        b_dict_reference[key] += float(a_dict[key])
+    list_to_return = [(k,v) for k,v in b_dict_reference.items()]
+    return list_to_return
+sqlContext.udf.register("mergeListsOfTuples", mergeListsOfTuples)
+searchable_plant_in_state_sets_3_pre = searchable_plant_in_state_sets_2.map(lambda x: (x[0], mergeListsOfTuples(x[1], list_of_user_ids_distinct_MAP_COLLECTED)))
+searchable_plant_in_state_sets_3 = searchable_plant_in_state_sets_3_pre.map(lambda x: (x[0], sorted(x[1], key=lambda x: x[0], reverse=True)))
+searchable_plant_in_state_sets_4 = searchable_plant_in_state_sets_3.map(lambda x: (x[0], [p[1] for p in x[1]]))
+orig_2D_matrix = searchable_plant_in_state_sets_4.map(lambda x: x[1]).zipWithIndex() # get rid of business_ids and replace with simple integer ids instead.
+# do I have a 2D matrix now?
+print("# do I have a 2D matrix now --> IT'S THE ORIGINAL ????????????????????????")
+for item in orig_2D_matrix.collect():
+    print(item)
+print("# do I have a 2D matrix now --> IT'S THE ORIGINAL ??????????????????????? ==> NOW WE KNOw .........")
+# iris_irm = IndexedRowMatrix(orig_2D_matrix.map(lambda x: IndexedRow(x[1], x[0])))
+
+
+
+
+#--------------- try projection of original data:
+from pyspark.mllib.linalg import Vectors, DenseMatrix
+from pyspark.mllib.linalg.distributed import RowMatrix
+
+# rows = sc.parallelize([
+#     Vectors.sparse(5, {1: 1.0, 3: 7.0}),
+#     Vectors.dense(2.0, 0.0, 3.0, 4.0, 5.0),
+#     Vectors.dense(4.0, 0.0, 0.0, 6.0, 7.0)
+# ])
+
+# mat = RowMatrix(rows)
+mat_orig_data = RowMatrix(orig_2D_matrix.map(lambda x: Row(x[1], x[0])))
+# Compute the top 4 principal components.
+# Principal components are stored in a local dense matrix.
+# pc = mat_FROM_SVD.computePrincipalComponents(2)
+
+# Project the rows to the linear space spanned by the top 4 principal components.
+# projected = mat.multiply(pc)
+# princ_comps_READY = DenseMatrix(len(princ_comps[0]), len(princ_comps), princ_comps.tolist())
+princ_comps_READY = DenseMatrix(15, 2, princ_comps.tolist())
+projected = mat_orig_data.multiply(princ_comps)
+projected.rows.map(lambda x: (x, )).toDF().show()
 
 
 
